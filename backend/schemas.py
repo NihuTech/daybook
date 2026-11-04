@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class UserCreate(BaseModel):
@@ -56,3 +56,24 @@ class CompletionOut(BaseModel):
     amount: int
 
     model_config = {"from_attributes": True}    
+
+class FocusSessionCreate(BaseModel):
+    seconds: int = Field(gt=0, le=86400)
+    task_id: int | None = None
+    day: date | None = None  # defaults to today
+
+
+class FocusSessionOut(BaseModel):
+    id: int
+    task_id: int | None
+    day: date
+    seconds: int
+
+    model_config = {"from_attributes": True}
+
+
+class FocusToday(BaseModel):
+    day: date
+    total_seconds: int
+    goal_seconds: int
+    percent: float    

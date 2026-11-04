@@ -2,16 +2,16 @@ from datetime import date
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
+from schemas import (
+    CompleteRequest, CompletionOut, FocusSessionCreate, FocusSessionOut,
+    FocusToday, LoginRequest, TaskCreate, TaskOut, Token, UserCreate, UserOut,
+)
 from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user
 from database import Base, engine, get_db
-from schemas import (
-    CompleteRequest, CompletionOut, LoginRequest,
-    TaskCreate, TaskOut, Token, UserCreate, UserOut,
-)
 app = FastAPI(title="Daybook API")
 Base.metadata.create_all(engine)
 
@@ -110,3 +110,46 @@ def complete_task(
     db.commit()
     db.refresh(completion)
     return completion
+
+@app.post("/focus-sessions", response_model=FocusSessionOut, status_code=201)
+def create_focus_session(
+    data: FocusSessionCreate,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if data.task_id is not None:
+        task = db.get(models.Task, data.task_id)
+        if task is None or task.user_id != user.id:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+    session = models.FocusSession(
+        user_id=user.id,
+        task_id=data.task_id,
+        day=data.day or date.today(),
+        seconds=data.seconds,
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return session
+
+
+@app.get("/focus-sessions/today", response_model=FocusToday)
+def focus_today(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    today = date.today()
+    total = db.scalar(
+        select(func.coalesce(func.sum(models.FocusSession.seconds), 0)).where(
+            models.FocusSession.user_id == user.id,
+            models.FocusSession.day == today,
+        )
+    )
+    goal = user.daily_goal_min * 60
+    return FocusToday(
+        day=today,
+        total_seconds=total,
+        goal_seconds=goal,
+        percent=round(total / goal * 100, 1) if goal else 0.0,
+    )
