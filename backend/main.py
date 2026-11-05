@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from schemas import (
     CompleteRequest, CompletionOut, FocusSessionCreate, FocusSessionOut,
     FocusToday, LoginRequest, SummaryToday, TaskCreate, TaskOut, TaskToday,
-    Token, UserCreate, UserOut,
+    Token, UserCreate, UserOut, ExamCreate, ExamOut
 )
 from sqlalchemy.orm import Session
 
@@ -196,3 +196,50 @@ def summary_today(
         tasks_total=len(items),
         focus=build_focus_today(user, db),
     )
+
+def exam_out(exam: models.Exam) -> ExamOut:
+    return ExamOut(
+        id=exam.id,
+        name=exam.name,
+        day=exam.day,
+        days_left=(exam.day - date.today()).days,
+    )
+
+
+@app.post("/exams", response_model=ExamOut, status_code=201)
+def create_exam(
+    data: ExamCreate,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    exam = models.Exam(user_id=user.id, name=data.name, day=data.day)
+    db.add(exam)
+    db.commit()
+    db.refresh(exam)
+    return exam_out(exam)
+
+
+@app.get("/exams", response_model=list[ExamOut])
+def list_exams(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    exams = db.scalars(
+        select(models.Exam)
+        .where(models.Exam.user_id == user.id)
+        .order_by(models.Exam.day)
+    ).all()
+    return [exam_out(e) for e in exams]
+
+
+@app.delete("/exams/{exam_id}", status_code=204)
+def delete_exam(
+    exam_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    exam = db.get(models.Exam, exam_id)
+    if exam is None or exam.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Exam not found")
+    db.delete(exam)
+    db.commit()

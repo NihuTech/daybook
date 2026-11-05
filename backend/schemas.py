@@ -94,3 +94,14 @@ class SummaryToday(BaseModel):
     tasks_done: int
     tasks_total: int
     focus: FocusToday    
+
+class ExamCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    day: date
+
+
+class ExamOut(BaseModel):
+    id: int
+    name: str
+    day: date
+    days_left: int    
