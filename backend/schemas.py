@@ -77,3 +77,20 @@ class FocusToday(BaseModel):
     total_seconds: int
     goal_seconds: int
     percent: float    
+
+class TaskToday(BaseModel):
+    id: int
+    name: str
+    label: str
+    kind: str
+    target: int
+    amount_today: int
+    done: bool
+
+
+class SummaryToday(BaseModel):
+    day: date
+    tasks: list[TaskToday]
+    tasks_done: int
+    tasks_total: int
+    focus: FocusToday    

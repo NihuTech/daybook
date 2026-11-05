@@ -5,7 +5,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import func, select
 from schemas import (
     CompleteRequest, CompletionOut, FocusSessionCreate, FocusSessionOut,
-    FocusToday, LoginRequest, TaskCreate, TaskOut, Token, UserCreate, UserOut,
+    FocusToday, LoginRequest, SummaryToday, TaskCreate, TaskOut, TaskToday,
+    Token, UserCreate, UserOut,
 )
 from sqlalchemy.orm import Session
 
@@ -133,12 +134,7 @@ def create_focus_session(
     db.refresh(session)
     return session
 
-
-@app.get("/focus-sessions/today", response_model=FocusToday)
-def focus_today(
-    user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
+def build_focus_today(user: models.User, db: Session) -> FocusToday:
     today = date.today()
     total = db.scalar(
         select(func.coalesce(func.sum(models.FocusSession.seconds), 0)).where(
@@ -152,4 +148,51 @@ def focus_today(
         total_seconds=total,
         goal_seconds=goal,
         percent=round(total / goal * 100, 1) if goal else 0.0,
+    )
+@app.get("/focus-sessions/today", response_model=FocusToday)
+def focus_today(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return build_focus_today(user, db)
+
+@app.get("/summary/today", response_model=SummaryToday)
+def summary_today(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    today = date.today()
+    tasks = db.scalars(
+        select(models.Task).where(models.Task.user_id == user.id)
+    ).all()
+
+    completions = db.scalars(
+        select(models.Completion).where(
+            models.Completion.task_id.in_([t.id for t in tasks]),
+            models.Completion.day == today,
+        )
+    ).all()
+    amount_by_task = {c.task_id: c.amount for c in completions}
+
+    items = []
+    for t in tasks:
+        amount = amount_by_task.get(t.id, 0)
+        items.append(
+            TaskToday(
+                id=t.id,
+                name=t.name,
+                label=t.label,
+                kind=t.kind,
+                target=t.target,
+                amount_today=amount,
+                done=amount >= t.target,
+            )
+        )
+
+    return SummaryToday(
+        day=today,
+        tasks=items,
+        tasks_done=sum(1 for i in items if i.done),
+        tasks_total=len(items),
+        focus=build_focus_today(user, db),
     )
