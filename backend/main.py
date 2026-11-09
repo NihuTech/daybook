@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import date, datetime
 
 from argon2 import PasswordHasher
@@ -17,6 +18,12 @@ from schemas import (
 )
 
 app = FastAPI(title="Daybook API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 Base.metadata.create_all(engine)
 
 ph = PasswordHasher()
