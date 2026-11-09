@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
@@ -12,7 +12,7 @@ from database import Base, engine, get_db
 from schemas import (
     CompleteRequest, CompletionOut, ExamCreate, ExamOut, FocusSessionCreate,
     FocusSessionOut, FocusToday, LoginRequest, SummaryToday, TaskCreate,
-    TaskOut, TaskToday, Token, UserCreate, UserOut, NoteCreate, NoteOut, NoteUpdate
+    TaskOut, TaskToday, Token, UserCreate, UserOut, NoteCreate, NoteOut, NoteUpdate, ReminderCreate, ReminderOut
 )
 
 app = FastAPI(title="Daybook API")
@@ -316,4 +316,79 @@ def delete_note(
 ):
     note = get_own_note(note_id, user, db)
     db.delete(note)
+    db.commit()    
+
+def get_own_reminder(
+    reminder_id: int, user: models.User, db: Session
+) -> models.Reminder:
+    reminder = db.get(models.Reminder, reminder_id)
+    if reminder is None or reminder.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    return reminder
+
+
+@app.post("/reminders", response_model=ReminderOut, status_code=201)
+def create_reminder(
+    data: ReminderCreate,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    reminder = models.Reminder(
+        user_id=user.id, text=data.text, remind_at=data.remind_at
+    )
+    db.add(reminder)
+    db.commit()
+    db.refresh(reminder)
+    return reminder
+
+
+@app.get("/reminders", response_model=list[ReminderOut])
+def list_reminders(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(
+        select(models.Reminder)
+        .where(models.Reminder.user_id == user.id)
+        .order_by(models.Reminder.remind_at)
+    ).all()
+
+
+@app.get("/reminders/due", response_model=list[ReminderOut])
+def due_reminders(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(
+        select(models.Reminder)
+        .where(
+            models.Reminder.user_id == user.id,
+            models.Reminder.fired == False,  # noqa: E712
+            models.Reminder.remind_at <= datetime.now(),
+        )
+        .order_by(models.Reminder.remind_at)
+    ).all()
+
+
+@app.post("/reminders/{reminder_id}/fire", response_model=ReminderOut)
+def fire_reminder(
+    reminder_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    reminder = get_own_reminder(reminder_id, user, db)
+    reminder.fired = True
+    db.commit()
+    db.refresh(reminder)
+    return reminder
+
+
+@app.delete("/reminders/{reminder_id}", status_code=204)
+def delete_reminder(
+    reminder_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    reminder = get_own_reminder(reminder_id, user, db)
+    db.delete(reminder)
     db.commit()    

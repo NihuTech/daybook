@@ -122,3 +122,16 @@ class NoteOut(BaseModel):
     color: int
 
     model_config = {"from_attributes": True}
+
+class ReminderCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=255)
+    remind_at: datetime
+
+
+class ReminderOut(BaseModel):
+    id: int
+    text: str
+    remind_at: datetime
+    fired: bool
+
+    model_config = {"from_attributes": True}    
