@@ -12,7 +12,7 @@ from database import Base, engine, get_db
 from schemas import (
     CompleteRequest, CompletionOut, ExamCreate, ExamOut, FocusSessionCreate,
     FocusSessionOut, FocusToday, LoginRequest, SummaryToday, TaskCreate,
-    TaskOut, TaskToday, Token, UserCreate, UserOut,
+    TaskOut, TaskToday, Token, UserCreate, UserOut, NoteCreate, NoteOut, NoteUpdate
 )
 
 app = FastAPI(title="Daybook API")
@@ -261,3 +261,59 @@ def delete_exam(
         raise HTTPException(status_code=404, detail="Exam not found")
     db.delete(exam)
     db.commit()
+
+def get_own_note(note_id: int, user: models.User, db: Session) -> models.Note:
+    note = db.get(models.Note, note_id)
+    if note is None or note.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return note
+
+
+@app.post("/notes", response_model=NoteOut, status_code=201)
+def create_note(
+    data: NoteCreate,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    note = models.Note(user_id=user.id, text=data.text, color=data.color)
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+@app.get("/notes", response_model=list[NoteOut])
+def list_notes(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return db.scalars(
+        select(models.Note).where(models.Note.user_id == user.id)
+    ).all()
+
+
+@app.patch("/notes/{note_id}", response_model=NoteOut)
+def update_note(
+    note_id: int,
+    data: NoteUpdate,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    note = get_own_note(note_id, user, db)
+    for field, value in data.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(note, field, value)
+    db.commit()
+    db.refresh(note)
+    return note
+
+
+@app.delete("/notes/{note_id}", status_code=204)
+def delete_note(
+    note_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    note = get_own_note(note_id, user, db)
+    db.delete(note)
+    db.commit()    

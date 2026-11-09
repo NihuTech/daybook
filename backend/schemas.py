@@ -106,3 +106,19 @@ class ExamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     day: date
 
+class NoteCreate(BaseModel):
+    text: str = Field(default="", max_length=160)
+    color: int = Field(default=0, ge=0)
+
+
+class NoteUpdate(BaseModel):
+    text: str | None = Field(default=None, max_length=160)
+    color: int | None = Field(default=None, ge=0)
+
+
+class NoteOut(BaseModel):
+    id: int
+    text: str
+    color: int
+
+    model_config = {"from_attributes": True}
