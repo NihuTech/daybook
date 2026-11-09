@@ -134,4 +134,22 @@ class ReminderOut(BaseModel):
     remind_at: datetime
     fired: bool
 
-    model_config = {"from_attributes": True}    
+    model_config = {"from_attributes": True}  
+
+class FriendRequestCreate(BaseModel):
+    email: EmailStr
+
+
+class FriendUser(BaseModel):
+    id: int
+    name: str
+    email: EmailStr
+    photo: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class FriendshipOut(BaseModel):
+    id: int
+    status: str
+    user: FriendUser  # the other person      

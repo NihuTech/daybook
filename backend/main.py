@@ -3,7 +3,7 @@ from datetime import date, datetime
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 import models
@@ -11,8 +11,9 @@ from auth import create_access_token, get_current_user
 from database import Base, engine, get_db
 from schemas import (
     CompleteRequest, CompletionOut, ExamCreate, ExamOut, FocusSessionCreate,
-    FocusSessionOut, FocusToday, LoginRequest, SummaryToday, TaskCreate,
-    TaskOut, TaskToday, Token, UserCreate, UserOut, NoteCreate, NoteOut, NoteUpdate, ReminderCreate, ReminderOut
+    FocusSessionOut, FocusToday, FriendRequestCreate, FriendshipOut, FriendUser,
+    LoginRequest, NoteCreate, NoteOut, NoteUpdate, ReminderCreate, ReminderOut,
+    SummaryToday, TaskCreate, TaskOut, TaskToday, Token, UserCreate, UserOut,
 )
 
 app = FastAPI(title="Daybook API")
@@ -391,4 +392,106 @@ def delete_reminder(
 ):
     reminder = get_own_reminder(reminder_id, user, db)
     db.delete(reminder)
+    db.commit()    
+
+def friendship_out(f: models.Friendship, me: models.User, db: Session) -> FriendshipOut:
+    other_id = f.addressee_id if f.requester_id == me.id else f.requester_id
+    other = db.get(models.User, other_id)
+    return FriendshipOut(
+        id=f.id, status=f.status, user=FriendUser.model_validate(other)
+    )
+
+
+@app.post("/friends/requests", response_model=FriendshipOut, status_code=201)
+def send_friend_request(
+    data: FriendRequestCreate,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    other = db.scalar(select(models.User).where(models.User.email == data.email))
+    if other is None:
+        raise HTTPException(status_code=404, detail="No user with that email")
+    if other.id == user.id:
+        raise HTTPException(status_code=400, detail="You can't friend yourself")
+
+    existing = db.scalar(
+        select(models.Friendship).where(
+            or_(
+                and_(
+                    models.Friendship.requester_id == user.id,
+                    models.Friendship.addressee_id == other.id,
+                ),
+                and_(
+                    models.Friendship.requester_id == other.id,
+                    models.Friendship.addressee_id == user.id,
+                ),
+            )
+        )
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Request or friendship already exists")
+
+    f = models.Friendship(requester_id=user.id, addressee_id=other.id)
+    db.add(f)
+    db.commit()
+    db.refresh(f)
+    return friendship_out(f, user, db)
+
+
+@app.get("/friends/requests", response_model=list[FriendshipOut])
+def incoming_requests(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(models.Friendship).where(
+            models.Friendship.addressee_id == user.id,
+            models.Friendship.status == "pending",
+        )
+    ).all()
+    return [friendship_out(f, user, db) for f in rows]
+
+
+@app.post("/friends/requests/{friendship_id}/accept", response_model=FriendshipOut)
+def accept_request(
+    friendship_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    f = db.get(models.Friendship, friendship_id)
+    if f is None or f.addressee_id != user.id or f.status != "pending":
+        raise HTTPException(status_code=404, detail="Request not found")
+    f.status = "accepted"
+    db.commit()
+    db.refresh(f)
+    return friendship_out(f, user, db)
+
+
+@app.get("/friends", response_model=list[FriendshipOut])
+def list_friends(
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = db.scalars(
+        select(models.Friendship).where(
+            models.Friendship.status == "accepted",
+            or_(
+                models.Friendship.requester_id == user.id,
+                models.Friendship.addressee_id == user.id,
+            ),
+        )
+    ).all()
+    return [friendship_out(f, user, db) for f in rows]
+
+
+@app.delete("/friends/{friendship_id}", status_code=204)
+def remove_friendship(
+    friendship_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    f = db.get(models.Friendship, friendship_id)
+    if f is None or user.id not in (f.requester_id, f.addressee_id):
+        raise HTTPException(status_code=404, detail="Friendship not found")
+    db.delete(f)
     db.commit()    
