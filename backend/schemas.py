@@ -87,21 +87,22 @@ class TaskToday(BaseModel):
     amount_today: int
     done: bool
 
+class ExamOut(BaseModel):
+    id: int
+    name: str
+    day: date
+    days_left: int    
+
 
 class SummaryToday(BaseModel):
     day: date
     tasks: list[TaskToday]
     tasks_done: int
     tasks_total: int
-    focus: FocusToday    
+    focus: FocusToday  
+    next_exam: ExamOut | None = None  
 
 class ExamCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     day: date
 
-
-class ExamOut(BaseModel):
-    id: int
-    name: str
-    day: date
-    days_left: int    

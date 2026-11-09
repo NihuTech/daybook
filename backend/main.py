@@ -1,18 +1,20 @@
 from datetime import date
+
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import func, select
-from schemas import (
-    CompleteRequest, CompletionOut, FocusSessionCreate, FocusSessionOut,
-    FocusToday, LoginRequest, SummaryToday, TaskCreate, TaskOut, TaskToday,
-    Token, UserCreate, UserOut, ExamCreate, ExamOut
-)
 from sqlalchemy.orm import Session
 
 import models
 from auth import create_access_token, get_current_user
 from database import Base, engine, get_db
+from schemas import (
+    CompleteRequest, CompletionOut, ExamCreate, ExamOut, FocusSessionCreate,
+    FocusSessionOut, FocusToday, LoginRequest, SummaryToday, TaskCreate,
+    TaskOut, TaskToday, Token, UserCreate, UserOut,
+)
+
 app = FastAPI(title="Daybook API")
 Base.metadata.create_all(engine)
 
@@ -45,6 +47,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
     db.refresh(user)
     return user
 
+
 @app.post("/login", response_model=Token)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     user = db.scalar(select(models.User).where(models.User.email == data.email))
@@ -61,6 +64,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 @app.get("/me", response_model=UserOut)
 def me(user: models.User = Depends(get_current_user)):
     return user
+
 
 @app.post("/tasks", response_model=TaskOut, status_code=201)
 def create_task(
@@ -112,6 +116,7 @@ def complete_task(
     db.refresh(completion)
     return completion
 
+
 @app.post("/focus-sessions", response_model=FocusSessionOut, status_code=201)
 def create_focus_session(
     data: FocusSessionCreate,
@@ -134,6 +139,7 @@ def create_focus_session(
     db.refresh(session)
     return session
 
+
 def build_focus_today(user: models.User, db: Session) -> FocusToday:
     today = date.today()
     total = db.scalar(
@@ -149,12 +155,24 @@ def build_focus_today(user: models.User, db: Session) -> FocusToday:
         goal_seconds=goal,
         percent=round(total / goal * 100, 1) if goal else 0.0,
     )
+
+
 @app.get("/focus-sessions/today", response_model=FocusToday)
 def focus_today(
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     return build_focus_today(user, db)
+
+
+def exam_out(exam: models.Exam) -> ExamOut:
+    return ExamOut(
+        id=exam.id,
+        name=exam.name,
+        day=exam.day,
+        days_left=(exam.day - date.today()).days,
+    )
+
 
 @app.get("/summary/today", response_model=SummaryToday)
 def summary_today(
@@ -189,20 +207,20 @@ def summary_today(
             )
         )
 
+    next_exam = db.scalars(
+        select(models.Exam)
+        .where(models.Exam.user_id == user.id, models.Exam.day >= today)
+        .order_by(models.Exam.day)
+        .limit(1)
+    ).first()
+
     return SummaryToday(
         day=today,
         tasks=items,
         tasks_done=sum(1 for i in items if i.done),
         tasks_total=len(items),
         focus=build_focus_today(user, db),
-    )
-
-def exam_out(exam: models.Exam) -> ExamOut:
-    return ExamOut(
-        id=exam.id,
-        name=exam.name,
-        day=exam.day,
-        days_left=(exam.day - date.today()).days,
+        next_exam=exam_out(next_exam) if next_exam else None,
     )
 
 
